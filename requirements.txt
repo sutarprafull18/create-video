@@ -1,9 +1,9 @@
 # requirements.txt
-streamlit==1.24.0
-requests==2.31.0
-beautifulsoup4==4.12.2
-Pillow==10.0.0
-gTTS==2.3.2
-moviepy==1.0.3
-translate==3.6.1
-pandas==2.0.3
+streamlit
+requests
+beautifulsoup4
+Pillow
+gTTS
+moviepy
+translate
+pandas
