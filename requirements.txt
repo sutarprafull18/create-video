@@ -8,5 +8,6 @@ moviepy
 translate
 pandas
 numpy
-
-#moviepy pillow  requests beautifulsoup4 streamlit gTTS translate
+googletrans
+python-json-logger
+opencv-python-headless
