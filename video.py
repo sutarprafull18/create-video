@@ -1,28 +1,14 @@
-# config.py
-TRANSITION_EFFECTS = {
-    'fade': lambda clip1, clip2: cross_dissolve(clip1, clip2, 1),
-    'slide_left': lambda clip1, clip2: slide_transition(clip1, clip2, 'left'),
-    'slide_right': lambda clip1, clip2: slide_transition(clip1, clip2, 'right'),
-    'zoom': lambda clip1, clip2: zoom_transition(clip1, clip2),
-    'rotate': lambda clip1, clip2: rotate_transition(clip1, clip2),
-}
+import os
+import numpy as np
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
+from moviepy.editor import ImageClip, VideoClip, AudioFileClip, concatenate_videoclips, CompositeAudioClip
+import logging
+import streamlit as st
 
-IMAGE_FILTERS = {
-    'none': lambda img: img,
-    'grayscale': lambda img: img.convert('L').convert('RGB'),
-    'sepia': apply_sepia,
-    'blur': lambda img: img.filter(ImageFilter.GaussianBlur(2)),
-    'sharpen': lambda img: img.filter(ImageFilter.SHARPEN),
-    'edge_enhance': lambda img: img.filter(ImageFilter.EDGE_ENHANCE),
-}
+# Set up logging
+logger = logging.getLogger(__name__)
 
-FONT_STYLES = {
-    'regular': 'arial.ttf',
-    'bold': 'arialbd.ttf',
-    'condensed': 'arialnb.ttf',
-}
-
-# custom_effects.py
+# First define all helper functions
 def apply_sepia(img):
     width, height = img.size
     pixels = img.load()
@@ -34,6 +20,9 @@ def apply_sepia(img):
             tb = int(0.272 * r + 0.534 * g + 0.131 * b)
             pixels[x, y] = (min(tr, 255), min(tg, 255), min(tb, 255))
     return img
+
+def cross_dissolve(clip1, clip2, duration):
+    return clip1.crossfadeout(duration).crossfadein(duration)
 
 def slide_transition(clip1, clip2, direction='left'):
     w, h = clip1.size
@@ -71,7 +60,6 @@ def rotate_transition(clip1, clip2):
         return merged
     return VideoClip(make_frame, duration=1)
 
-# audio_handler.py
 def mix_audio(main_audio, bg_music, bg_volume=0.3):
     # Normalize background music duration to match main audio
     if bg_music.duration > main_audio.duration:
@@ -86,85 +74,129 @@ def mix_audio(main_audio, bg_music, bg_volume=0.3):
     final_audio = CompositeAudioClip([main_audio, bg_music])
     return final_audio
 
-# extensions to WebToVideo class
-def create_video_with_effects(self, images, audio_file, 
-                            transition_effect='fade',
-                            bg_music_path=None,
-                            bg_volume=0.3,
-                            image_filter='none',
-                            text_overlay=None,
-                            duration_per_image=5):
-    try:
-        if not images:
-            raise ValueError("No images provided for video creation")
-            
-        # Apply image filters and create clips
-        image_clips = []
-        for i, img in enumerate(images):
-            try:
-                # Apply selected filter
-                img = IMAGE_FILTERS[image_filter](img)
-                
-                # Add text overlay if specified
-                if text_overlay:
-                    draw = ImageDraw.Draw(img)
-                    font = ImageFont.truetype(FONT_STYLES['regular'], 60)
-                    text = text_overlay.format(slide_number=i+1)
-                    w, h = draw.textsize(text, font=font)
-                    draw.text(((img.width-w)/2, img.height-100), 
-                            text, 
-                            font=font, 
-                            fill='white',
-                            stroke_width=2,
-                            stroke_fill='black')
-                
-                img_path = os.path.join(self.temp_dir, f'image_{i}.png')
-                img.save(img_path)
-                clip = ImageClip(img_path).set_duration(duration_per_image)
-                image_clips.append(clip)
-            except Exception as e:
-                logger.warning(f"Failed to process image {i}: {str(e)}")
-                continue
-        
-        # Apply transitions
-        clips_with_transitions = []
-        transition_func = TRANSITION_EFFECTS.get(transition_effect, TRANSITION_EFFECTS['fade'])
-        
-        for i in range(len(image_clips)-1):
-            clips_with_transitions.append(image_clips[i])
-            transition = transition_func(image_clips[i], image_clips[i+1])
-            clips_with_transitions.append(transition)
-        clips_with_transitions.append(image_clips[-1])
-        
-        # Create final video
-        final_clip = concatenate_videoclips(clips_with_transitions, method="compose")
-        
-        # Handle audio
-        main_audio = AudioFileClip(audio_file)
-        if bg_music_path and os.path.exists(bg_music_path):
-            bg_music = AudioFileClip(bg_music_path)
-            final_audio = mix_audio(main_audio, bg_music, bg_volume)
-        else:
-            final_audio = main_audio
-        
-        # Set audio to video
-        if final_audio.duration > final_clip.duration:
-            final_clip = final_clip.loop(duration=final_audio.duration)
-        else:
-            final_audio = final_audio.loop(duration=final_clip.duration)
-            
-        final_clip = final_clip.set_audio(final_audio)
-        
-        # Write final video
-        output_path = os.path.join(self.temp_dir, 'output.mp4')
-        final_clip.write_videofile(output_path, fps=24, codec='libx264')
-        
-        return output_path
-    except Exception as e:
-        logger.error(f"Error in create_video_with_effects: {str(e)}")
-        raise Exception(f"Failed to create video with effects: {str(e)}")
+# Configuration dictionaries (now defined after the functions they reference)
+TRANSITION_EFFECTS = {
+    'fade': lambda clip1, clip2: cross_dissolve(clip1, clip2, 1),
+    'slide_left': lambda clip1, clip2: slide_transition(clip1, clip2, 'left'),
+    'slide_right': lambda clip1, clip2: slide_transition(clip1, clip2, 'right'),
+    'zoom': lambda clip1, clip2: zoom_transition(clip1, clip2),
+    'rotate': lambda clip1, clip2: rotate_transition(clip1, clip2),
+}
 
-# Updated main function with new UI elements
+IMAGE_FILTERS = {
+    'none': lambda img: img,
+    'grayscale': lambda img: img.convert('L').convert('RGB'),
+    'sepia': apply_sepia,
+    'blur': lambda img: img.filter(ImageFilter.GaussianBlur(2)),
+    'sharpen': lambda img: img.filter(ImageFilter.SHARPEN),
+    'edge_enhance': lambda img: img.filter(ImageFilter.EDGE_ENHANCE),
+}
+
+FONT_STYLES = {
+    'regular': 'arial.ttf',
+    'bold': 'arialbd.ttf',
+    'condensed': 'arialnb.ttf',
+}
+
+class WebToVideo:
+    def create_video_with_effects(self, images, audio_file, 
+                                transition_effect='fade',
+                                bg_music_path=None,
+                                bg_volume=0.3,
+                                image_filter='none',
+                                text_overlay=None,
+                                duration_per_image=5):
+        try:
+            if not images:
+                raise ValueError("No images provided for video creation")
+                
+            # Apply image filters and create clips
+            image_clips = []
+            for i, img in enumerate(images):
+                try:
+                    # Apply selected filter
+                    img = IMAGE_FILTERS[image_filter](img)
+                    
+                    # Add text overlay if specified
+                    if text_overlay:
+                        draw = ImageDraw.Draw(img)
+                        font = ImageFont.truetype(FONT_STYLES['regular'], 60)
+                        text = text_overlay.format(slide_number=i+1)
+                        w, h = draw.textsize(text, font=font)
+                        draw.text(((img.width-w)/2, img.height-100), 
+                                text, 
+                                font=font, 
+                                fill='white',
+                                stroke_width=2,
+                                stroke_fill='black')
+                    
+                    img_path = os.path.join(self.temp_dir, f'image_{i}.png')
+                    img.save(img_path)
+                    clip = ImageClip(img_path).set_duration(duration_per_image)
+                    image_clips.append(clip)
+                except Exception as e:
+                    logger.warning(f"Failed to process image {i}: {str(e)}")
+                    continue
+            
+            # Apply transitions
+            clips_with_transitions = []
+            transition_func = TRANSITION_EFFECTS.get(transition_effect, TRANSITION_EFFECTS['fade'])
+            
+            for i in range(len(image_clips)-1):
+                clips_with_transitions.append(image_clips[i])
+                transition = transition_func(image_clips[i], image_clips[i+1])
+                clips_with_transitions.append(transition)
+            clips_with_transitions.append(image_clips[-1])
+            
+            # Create final video
+            final_clip = concatenate_videoclips(clips_with_transitions, method="compose")
+            
+            # Handle audio
+            main_audio = AudioFileClip(audio_file)
+            if bg_music_path and os.path.exists(bg_music_path):
+                bg_music = AudioFileClip(bg_music_path)
+                final_audio = mix_audio(main_audio, bg_music, bg_volume)
+            else:
+                final_audio = main_audio
+            
+            # Set audio to video
+            if final_audio.duration > final_clip.duration:
+                final_clip = final_clip.loop(duration=final_audio.duration)
+            else:
+                final_audio = final_audio.loop(duration=final_clip.duration)
+                
+            final_clip = final_clip.set_audio(final_audio)
+            
+            # Write final video
+            output_path = os.path.join(self.temp_dir, 'output.mp4')
+            final_clip.write_videofile(output_path, fps=24, codec='libx264')
+            
+            return output_path
+        except Exception as e:
+            logger.error(f"Error in create_video_with_effects: {str(e)}")
+            raise Exception(f"Failed to create video with effects: {str(e)}")
+
+    def __init__(self):
+        self.temp_dir = "temp"
+        if not os.path.exists(self.temp_dir):
+            os.makedirs(self.temp_dir)
+
+    def scrape_website(self, url):
+        # Implement website scraping logic here
+        pass
+
+    def create_default_image(self, text):
+        # Implement default image creation logic here
+        pass
+
+    def translate_to_hinglish(self, text):
+        # Implement translation logic here
+        pass
+
+    def create_audio(self, text):
+        # Implement audio creation logic here
+        pass
+
 def main():
     st.title("Enhanced Website to Video Generator")
     st.write("Convert any webpage into a video with advanced customization options")
