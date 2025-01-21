@@ -5,12 +5,13 @@ from moviepy.editor import ImageClip, VideoClip, AudioFileClip, concatenate_vide
 import logging
 import streamlit as st
 import tempfile
+from pathlib import Path
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# First define all helper functions
+# Helper functions (unchanged)
 def apply_sepia(img):
     width, height = img.size
     pixels = img.load()
@@ -63,16 +64,11 @@ def rotate_transition(clip1, clip2):
     return VideoClip(make_frame, duration=1)
 
 def mix_audio(main_audio, bg_music, bg_volume=0.3):
-    # Normalize background music duration to match main audio
     if bg_music.duration > main_audio.duration:
         bg_music = bg_music.subclip(0, main_audio.duration)
     else:
         bg_music = bg_music.loop(duration=main_audio.duration)
-    
-    # Adjust background volume
     bg_music = bg_music.volumex(bg_volume)
-    
-    # Composite audio
     final_audio = CompositeAudioClip([main_audio, bg_music])
     return final_audio
 
@@ -94,11 +90,16 @@ IMAGE_FILTERS = {
     'edge_enhance': lambda img: img.filter(ImageFilter.EDGE_ENHANCE),
 }
 
-FONT_STYLES = {
-    'regular': 'arial.ttf',
-    'bold': 'arialbd.ttf',
-    'condensed': 'arialnb.ttf',
-}
+def get_font(style='regular', size=40):
+    font_paths = [
+        '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',  # Linux
+        '/System/Library/Fonts/Helvetica.ttc',  # macOS
+        'C:\\Windows\\Fonts\\arial.ttf',  # Windows
+    ]
+    for font_path in font_paths:
+        if Path(font_path).exists():
+            return ImageFont.truetype(font_path, size)
+    return ImageFont.load_default()
 
 class WebToVideo:
     def __init__(self):
@@ -114,26 +115,19 @@ class WebToVideo:
         try:
             if not images:
                 raise ValueError("No images provided for video creation")
-                
-            # Apply image filters and create clips
+            
             image_clips = []
             for i, img in enumerate(images):
                 try:
-                    # Apply selected filter
                     img = IMAGE_FILTERS[image_filter](img)
                     
-                    # Add text overlay if specified
                     if text_overlay:
                         draw = ImageDraw.Draw(img)
-                        font = ImageFont.truetype(FONT_STYLES['regular'], 60)
+                        font = get_font(size=60)
                         text = text_overlay.format(slide_number=i+1)
-                        w, h = draw.textsize(text, font=font)
-                        draw.text(((img.width-w)/2, img.height-100), 
-                                text, 
-                                font=font, 
-                                fill='white',
-                                stroke_width=2,
-                                stroke_fill='black')
+                        text_bbox = draw.textbbox((0, 0), text, font=font)
+                        text_position = ((img.width - text_bbox[2]) / 2, img.height - 100)
+                        draw.text(text_position, text, font=font, fill='white', stroke_width=2, stroke_fill='black')
                     
                     img_path = os.path.join(self.temp_dir, f'image_{i}.png')
                     img.save(img_path)
@@ -143,7 +137,6 @@ class WebToVideo:
                     logger.warning(f"Failed to process image {i}: {str(e)}")
                     continue
             
-            # Apply transitions
             clips_with_transitions = []
             transition_func = TRANSITION_EFFECTS.get(transition_effect, TRANSITION_EFFECTS['fade'])
             
@@ -153,10 +146,8 @@ class WebToVideo:
                 clips_with_transitions.append(transition)
             clips_with_transitions.append(image_clips[-1])
             
-            # Create final video
             final_clip = concatenate_videoclips(clips_with_transitions, method="compose")
             
-            # Handle audio
             main_audio = AudioFileClip(audio_file)
             if bg_music_path and os.path.exists(bg_music_path):
                 bg_music = AudioFileClip(bg_music_path)
@@ -164,7 +155,6 @@ class WebToVideo:
             else:
                 final_audio = main_audio
             
-            # Set audio to video
             if final_audio.duration > final_clip.duration:
                 final_clip = final_clip.loop(duration=final_audio.duration)
             else:
@@ -172,7 +162,6 @@ class WebToVideo:
                 
             final_clip = final_clip.set_audio(final_audio)
             
-            # Write final video
             output_path = os.path.join(self.temp_dir, 'output.mp4')
             final_clip.write_videofile(output_path, fps=24, codec='libx264')
             
@@ -187,10 +176,9 @@ class WebToVideo:
         return "Dummy website content", [Image.new('RGB', (800, 600), color='red')]
 
     def create_default_image(self, text):
-        # Create a simple image with text
         img = Image.new('RGB', (800, 600), color='white')
         d = ImageDraw.Draw(img)
-        font = ImageFont.truetype(FONT_STYLES['regular'], 40)
+        font = get_font(size=40)
         d.text((10,10), text, fill=(0,0,0), font=font)
         return img
 
@@ -210,11 +198,9 @@ def main():
     st.title("Enhanced Website to Video Generator")
     st.write("Convert any webpage into a video with advanced customization options")
     
-    # Initialize session state
     if 'processor' not in st.session_state:
         st.session_state.processor = WebToVideo()
     
-    # Create tabs for different input methods
     tab1, tab2 = st.tabs(["URL Input", "Direct Text Input"])
     
     with tab1:
@@ -223,48 +209,21 @@ def main():
     with tab2:
         text_input = st.text_area("Paste website content directly:")
     
-    # Customization options in an expander
     with st.expander("Customization Options", expanded=False):
         col1, col2 = st.columns(2)
         
         with col1:
-            transition_effect = st.selectbox(
-                "Transition Effect",
-                options=list(TRANSITION_EFFECTS.keys())
-            )
-            
-            image_filter = st.selectbox(
-                "Image Filter",
-                options=list(IMAGE_FILTERS.keys())
-            )
-            
-            duration = st.slider(
-                "Seconds per Slide",
-                min_value=3,
-                max_value=10,
-                value=5
-            )
+            transition_effect = st.selectbox("Transition Effect", options=list(TRANSITION_EFFECTS.keys()))
+            image_filter = st.selectbox("Image Filter", options=list(IMAGE_FILTERS.keys()))
+            duration = st.slider("Seconds per Slide", min_value=3, max_value=10, value=5)
         
         with col2:
-            text_overlay = st.text_input(
-                "Text Overlay Template",
-                value="Slide {slide_number}",
-                help="Use {slide_number} for automatic numbering"
-            )
-            
-            bg_music = st.file_uploader(
-                "Background Music (optional)",
-                type=['mp3', 'wav']
-            )
+            text_overlay = st.text_input("Text Overlay Template", value="Slide {slide_number}", 
+                                         help="Use {slide_number} for automatic numbering")
+            bg_music = st.file_uploader("Background Music (optional)", type=['mp3', 'wav'])
             
             if bg_music:
-                bg_volume = st.slider(
-                    "Background Music Volume",
-                    min_value=0.0,
-                    max_value=1.0,
-                    value=0.3,
-                    step=0.1
-                )
+                bg_volume = st.slider("Background Music Volume", min_value=0.0, max_value=1.0, value=0.3, step=0.1)
     
     if st.button("Generate Video", type="primary"):
         if not url and not text_input:
@@ -272,14 +231,12 @@ def main():
         else:
             try:
                 with st.spinner("Processing..."):
-                    # Save background music if provided
                     bg_music_path = None
                     if bg_music:
                         bg_music_path = os.path.join(st.session_state.processor.temp_dir, 'bg_music.mp3')
                         with open(bg_music_path, 'wb') as f:
                             f.write(bg_music.read())
                     
-                    # Process content
                     progress_bar = st.progress(0)
                     status_text = st.empty()
                     
@@ -326,7 +283,6 @@ def main():
                                     mime="video/mp4"
                                 )
                             
-                            # Show video details
                             st.json({
                                 "Duration": f"{duration * len(images)} seconds",
                                 "Transition Effect": transition_effect,
@@ -336,6 +292,7 @@ def main():
             except Exception as e:
                 st.error(f"An error occurred: {str(e)}")
                 logger.exception("Application error")
+                st.info("Please try again with different inputs or settings.")
 
 if __name__ == "__main__":
     main()
