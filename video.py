@@ -285,7 +285,135 @@ class WebToVideo:
             logger.error(f"Error in create_video_with_effects: {str(e)}")
             raise Exception(f"Failed to create video with effects: {str(e)}")
 
-[The main() function remains exactly the same as in your original code...]
+[Previous code remains exactly the same until the main() function...]
+
+def main():
+    st.title("Enhanced Website to Video Generator")
+    st.write("Convert any webpage into a video with advanced customization options")
+    
+    # Initialize session state
+    if 'processor' not in st.session_state:
+        st.session_state.processor = WebToVideo()
+    
+    # Create tabs for different input methods
+    tab1, tab2 = st.tabs(["URL Input", "Direct Text Input"])
+    
+    with tab1:
+        url = st.text_input("Enter website URL:")
+    
+    with tab2:
+        text_input = st.text_area("Paste website content directly:")
+    
+    # Customization options in an expander
+    with st.expander("Customization Options", expanded=False):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            transition_effect = st.selectbox(
+                "Transition Effect",
+                options=list(TRANSITION_EFFECTS.keys())
+            )
+            
+            image_filter = st.selectbox(
+                "Image Filter",
+                options=list(IMAGE_FILTERS.keys())
+            )
+            
+            duration = st.slider(
+                "Seconds per Slide",
+                min_value=3,
+                max_value=10,
+                value=5
+            )
+        
+        with col2:
+            text_overlay = st.text_input(
+                "Text Overlay Template",
+                value="Slide {slide_number}",
+                help="Use {slide_number} for automatic numbering"
+            )
+            
+            bg_music = st.file_uploader(
+                "Background Music (optional)",
+                type=['mp3', 'wav']
+            )
+            
+            if bg_music:
+                bg_volume = st.slider(
+                    "Background Music Volume",
+                    min_value=0.0,
+                    max_value=1.0,
+                    value=0.3,
+                    step=0.1
+                )
+    
+    try:
+        if st.button("Generate Video", type="primary"):
+            if not url and not text_input:
+                st.error("Please provide either a URL or website content")
+                return
+            
+            with st.spinner("Processing..."):
+                # Save background music if provided
+                bg_music_path = None
+                if bg_music:
+                    bg_music_path = os.path.join(st.session_state.processor.temp_dir, 'bg_music.mp3')
+                    with open(bg_music_path, 'wb') as f:
+                        f.write(bg_music.read())
+                
+                # Process content
+                with st.status("Getting content...") as status:
+                    if url:
+                        text, images = st.session_state.processor.scrape_website(url)
+                    else:
+                        text = text_input
+                        images = [st.session_state.processor.create_default_image(text)]
+                    
+                    status.update(label="Translating content...")
+                    hinglish_text = st.session_state.processor.translate_to_hinglish(text)
+                    
+                    status.update(label="Generating audio...")
+                    audio_file = st.session_state.processor.create_audio(hinglish_text)
+                    
+                    if audio_file:
+                        status.update(label="Creating video with effects...")
+                        video_path = st.session_state.processor.create_video_with_effects(
+                            images=images,
+                            audio_file=audio_file,
+                            transition_effect=transition_effect,
+                            bg_music_path=bg_music_path,
+                            bg_volume=bg_volume if bg_music else None,
+                            image_filter=image_filter,
+                            text_overlay=text_overlay,
+                            duration_per_image=duration
+                        )
+                        
+                        if video_path:
+                            st.success("Video generated successfully!")
+                            st.video(video_path)
+                            
+                            with open(video_path, 'rb') as file:
+                                st.download_button(
+                                    label="Download Video",
+                                    data=file,
+                                    file_name="generated_video.mp4",
+                                    mime="video/mp4"
+                                )
+                            
+                            # Show video details
+                            st.json({
+                                "Duration": f"{duration * len(images)} seconds",
+                                "Transition Effect": transition_effect,
+                                "Image Filter": image_filter,
+                                "Background Music": "Yes" if bg_music else "No"
+                            })
+                
+    except Exception as e:
+        st.error(f"An error occurred: {str(e)}")
+        logger.exception("Application error")
+
+if __name__ == "__main__":
+    main()
 
 if __name__ == "__main__":
     main()
